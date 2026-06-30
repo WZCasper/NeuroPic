@@ -62,6 +62,7 @@ const state = {
   theme:           'dark',
   lightboxIndex:   0,
   uploadedImage:   null,   // { dataUrl, file, name }
+  textWarningShown:false,  // показывалось ли предупреждение про текст на изображениях в этой сессии
 };
 
 // ── DOM ────────────────────────────────────────────────────────────
@@ -361,6 +362,24 @@ async function handleGenerate() {
   }
   if (state.generating) return;
 
+  // Честная проверка: если загружено изображение и запрос похож на просьбу
+  // отредактировать/заменить текст на НЁМ — бесплатные модели (Flux/NanoBanana
+  // через Pollinations) этого не умеют. Это не генерация с нуля, а inpainting/
+  // редактирование существующего файла, и без него результат — нечитаемая мазня
+  // поверх нового сгенерированного изображения, а не правка исходника.
+  if (state.uploadedImage && !state.apiKeys.hf && looksLikeImageEditRequest(prompt)) {
+    showImageEditWarning();
+    return;
+  }
+
+  // Мягкое предупреждение (не блокирует генерацию): диффузионные модели в принципе
+  // плохо рисуют читаемый текст с нуля, даже без загруженного изображения.
+  // Показываем один раз за сессию, чтобы не раздражать при каждом клике.
+  if (!state.uploadedImage && looksLikeTextRequest(prompt) && !state.textWarningShown) {
+    state.textWarningShown = true;
+    showToast('ИИ-модели часто искажают текст на изображениях — результат может отличаться от ожидаемого', 'warning');
+  }
+
   state.generating = true;
   setGeneratingUI(true);
   showGenPopup(true);
@@ -382,6 +401,28 @@ async function handleGenerate() {
     setGeneratingUI(false);
     showGenPopup(false);
   }
+}
+
+// Распознаёт намерение "отредактируй/замени/убери что-то НА загруженной картинке" —
+// в отличие от "нарисуй картинку, на которой есть текст X", где генерация с нуля работает нормально.
+function looksLikeImageEditRequest(prompt) {
+  const p = prompt.toLowerCase();
+  const editVerbs = ['замени', 'заменить', 'исправь', 'исправить', 'убери', 'убрать', 'удали текст', 'поменяй текст', 'измени текст'];
+  const targetsImage = p.includes('на картинке') || p.includes('на изображении') || p.includes('на этом фото') || p.includes('на фото');
+  return editVerbs.some(v => p.includes(v)) && targetsImage;
+}
+
+// Распознаёт запросы вида "надпись X", "текст X", "табличка с X" — где X в кавычках
+// или после двоеточия обычно означает желание получить именно ЧИТАЕМЫЙ текст на картинке.
+function looksLikeTextRequest(prompt) {
+  const p = prompt.toLowerCase();
+  const textWords = ['надпись', 'текст', 'табличка', 'вывеска', 'плакат с текстом', 'логотип с надписью'];
+  const hasQuoteOrColon = /["«:]/.test(prompt);
+  return textWords.some(w => p.includes(w)) && hasQuoteOrColon;
+}
+
+function showImageEditWarning() {
+  showToast('Бесплатные модели не умеют редактировать текст на загруженном фото — нужен Hugging Face ключ или другой запрос', 'warning');
 }
 
 async function generateImages(prompt, count) {
@@ -639,9 +680,34 @@ function renderImageResults(images, prompt) {
     // Скрываем лоадер когда картинка реально отрисовалась в браузере
     const imgEl    = item.querySelector(`[data-img="${idx}"]`);
     const loaderEl = item.querySelector(`[data-loader="${idx}"]`);
+    let retryCount = 0;
+    const maxRetries = 2;
+
     imgEl.addEventListener('load', () => { loaderEl.style.display = 'none'; });
     imgEl.addEventListener('error', () => {
-      loaderEl.innerHTML = '<span class="image-item-error">Не удалось загрузить</span>';
+      // Pollinations иногда отдаёт временную ошибку на параллельных запросах
+      // (особенно при генерации 2 или 4 картинок сразу). Вместо немедленной
+      // капитуляции — пробуем заново с новым seed, прежде чем сдаться.
+      if (retryCount < maxRetries) {
+        retryCount++;
+        loaderEl.innerHTML = `<div class="image-item-spinner"></div>`;
+        loaderEl.style.display = 'flex';
+        const retryUrl = rebuildImageUrlWithNewSeed(img.url);
+        setTimeout(() => { imgEl.src = retryUrl; }, 800 * retryCount);
+      } else {
+        loaderEl.innerHTML = `
+          <div class="image-item-error-box">
+            <span class="image-item-error">Не удалось загрузить изображение</span>
+            <button class="image-item-retry-btn" data-retry-idx="${idx}">Повторить</button>
+          </div>`;
+        const retryBtn = loaderEl.querySelector('.image-item-retry-btn');
+        retryBtn.addEventListener('click', e => {
+          e.stopPropagation();
+          retryCount = 0;
+          loaderEl.innerHTML = `<div class="image-item-spinner"></div>`;
+          imgEl.src = rebuildImageUrlWithNewSeed(img.url);
+        });
+      }
     });
     // Если картинка уже в кэше браузера, событие load может не сработать заново — проверяем complete
     if (imgEl.complete && imgEl.naturalWidth > 0) loaderEl.style.display = 'none';
@@ -685,6 +751,22 @@ function renderImageResults(images, prompt) {
 function getRatioClass(ratio) {
   const map = { '16:9': 'ratio-16-9', '9:16': 'ratio-9-16', '4:3': 'ratio-4-3' };
   return map[ratio] || '';
+}
+
+// Берёт существующий URL генерации (Pollinations) и подставляет новый случайный seed —
+// используется при повторной попытке загрузки изображения, упавшего с ошибкой.
+function rebuildImageUrlWithNewSeed(originalUrl) {
+  try {
+    const u = new URL(originalUrl);
+    u.searchParams.set('seed', Math.floor(Math.random() * 999999999));
+    // Добавляем метку времени, чтобы браузер не взял ответ из кэша на старую (упавшую) ссылку
+    u.searchParams.set('_retry', Date.now());
+    return u.toString();
+  } catch (e) {
+    // Если URL не распарсился — просто добавляем cache-buster в конец
+    const sep = originalUrl.includes('?') ? '&' : '?';
+    return `${originalUrl}${sep}_retry=${Date.now()}`;
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -965,7 +1047,7 @@ function setGeneratingUI(generating) {
 // ════════════════════════════════════════════════════════════════════
 let toastTimer = null;
 
-function showToast(message, type = 'success') {
+function showToast(message, type = 'success', duration = null) {
   const icons  = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
   const colors = { success: 'var(--success)', error: 'var(--error)', warning: 'var(--warning)', info: 'var(--accent-bright)' };
   dom.toastIcon.textContent = icons[type] || '•';
@@ -973,7 +1055,9 @@ function showToast(message, type = 'success') {
   dom.toastIcon.style.color = colors[type] || 'var(--text-secondary)';
   dom.toast.classList.add('visible');
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => dom.toast.classList.remove('visible'), 3000);
+  // Предупреждения дольше задерживаются на экране, так как обычно длиннее обычных уведомлений
+  const defaultDuration = type === 'warning' ? 5000 : 3000;
+  toastTimer = setTimeout(() => dom.toast.classList.remove('visible'), duration || defaultDuration);
 }
 
 // ════════════════════════════════════════════════════════════════════
