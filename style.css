@@ -387,9 +387,21 @@ details[open] .advanced-toggle svg { transform:rotate(180deg); }
   border-radius:50%;
   animation:spin 0.85s linear infinite;
 }
-.image-item-error {
-  font-size:0.8125rem; color:var(--text-muted); padding:0 16px; text-align:center;
+.image-item-error-box {
+  display:flex; flex-direction:column; align-items:center; gap:10px;
+  padding:0 16px; text-align:center;
 }
+.image-item-error {
+  font-size:0.8125rem; color:var(--text-muted);
+}
+.image-item-retry-btn {
+  display:flex; align-items:center; gap:6px;
+  padding:7px 16px; border-radius:var(--radius-md);
+  background:var(--accent-dim); border:1px solid rgba(139,92,246,0.3);
+  color:var(--accent-bright); font-size:0.8125rem; font-weight:600;
+  transition:all var(--transition);
+}
+.image-item-retry-btn:hover { background:var(--accent); color:#fff; border-color:var(--accent); }
 
 /* для 2 и 4 изображений — фиксируем aspect-ratio чтобы не скакала сетка */
 .images-grid.count-2 .image-item,
@@ -621,14 +633,17 @@ details[open] .advanced-toggle svg { transform:rotate(180deg); }
 .toast {
   position:fixed; bottom:28px; left:50%;
   transform:translateX(-50%) translateY(20px);
-  display:flex; align-items:center; gap:10px; padding:12px 20px;
-  border-radius:100px; background:var(--bg-card); border:1px solid var(--border);
+  display:flex; align-items:flex-start; gap:10px; padding:12px 20px;
+  border-radius:20px; background:var(--bg-card); border:1px solid var(--border);
   color:var(--text-primary); font-size:0.875rem; font-weight:500;
   box-shadow:0 8px 32px rgba(0,0,0,0.4); z-index:600;
   opacity:0; pointer-events:none;
-  transition:all 0.25s cubic-bezier(0.4,0,0.2,1); white-space:nowrap;
+  transition:all 0.25s cubic-bezier(0.4,0,0.2,1);
+  max-width:min(420px, calc(100vw - 32px));
+  line-height:1.4;
 }
 .toast.visible { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast-icon { flex-shrink:0; margin-top:1px; }
 
 .lightbox {
   position:fixed; inset:0; z-index:400;
