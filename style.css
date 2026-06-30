@@ -671,13 +671,14 @@ details[open] .advanced-toggle svg { transform:rotate(180deg); }
 .footer { border-top:1px solid var(--border); padding:24px; }
 .footer-inner {
   max-width:1100px; margin:0 auto;
-  display:flex; align-items:center; justify-content:space-between;
-  gap:12px; flex-wrap:wrap;
+  display:flex; align-items:center; justify-content:center;
 }
-.footer-logo { font-weight:700; color:var(--accent-bright); }
-.footer-copy { font-size:0.875rem; color:var(--text-muted); }
-.footer-github { display:flex; align-items:center; gap:6px; font-size:0.875rem; color:var(--text-secondary); transition:color var(--transition); }
-.footer-github:hover { color:var(--text-primary); text-decoration:none; }
+.footer-copy { font-size:0.875rem; color:var(--text-muted); text-align:center; }
+.footer-author-link {
+  color:var(--accent-bright); font-weight:600;
+  transition:color var(--transition);
+}
+.footer-author-link:hover { color:var(--accent); text-decoration:underline; }
 
 /* ═══════════════════════════════════════════
    МОБИЛЬНАЯ АДАПТАЦИЯ
@@ -696,7 +697,6 @@ details[open] .advanced-toggle svg { transform:rotate(180deg); }
   .header-inner { padding:0 16px; }
   .main { padding:0 16px 60px; }
   .nav-btn span:last-child { display:none; }
-  .footer-inner { flex-direction:column; text-align:center; gap:8px; }
   .gen-popup-box { flex-direction:column; text-align:center; padding:28px 24px; }
   .upload-preview { flex-direction:column; align-items:flex-start; }
 }
